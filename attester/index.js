@@ -67,7 +67,7 @@ const auctionRewardAmoyContract = new ethers.Contract(
 //     );
 //     return paymentDetails[0];
 // }
-async function electedLeader() {
+function electedLeader() {
     return "0x5c27a880ec9024F006A70B8f1fB91b82d94ef4D4"
 }
 
@@ -83,26 +83,27 @@ auctionRewardAmoyContract.on("AuctionAccepted", async (
     acceptOfferTimestamp,
     acceptOfferBlockNumber
 ) => {
-    console.log("acceptanceId: ", Number(acceptanceId));
-    console.log("auctionId: ", Number(auctionId));
-    console.log("createdAuctionChainId: ", Number(createdAuctionChainId));
-    console.log("buyer: ", buyer);
-    console.log("tokenForAccepting: ", tokenForAccepting);
-    console.log("amountPaying: ", Number(amountPaying));
-    console.log("acceptOfferTimestamp: ", Number(acceptOfferTimestamp));
-    console.log("acceptOfferBlockNumber: ", Number(acceptOfferBlockNumber));
 
     // Every operator knows who is supposed to send a task in the next block
-    const currentPerformer = await electedLeader();
+    //const currentPerformer = electedLeader();
 
     // If the current performer is the operator itself, it performs the task
-    if (currentPerformer == "0x5c27a880ec9024F006A70B8f1fB91b82d94ef4D4") {
+    if (nodeAccount.address == electedLeader()) {
         //console.log(currentPerformer, "is performing the task");
+
+        console.log("acceptanceId: ", Number(acceptanceId));
+        console.log("auctionId: ", Number(auctionId));
+        console.log("createdAuctionChainId: ", Number(createdAuctionChainId));
+        console.log("buyer: ", buyer);
+        console.log("tokenForAccepting: ", tokenForAccepting);
+        console.log("amountPaying: ", Number(amountPaying));
+        console.log("acceptOfferTimestamp: ", Number(acceptOfferTimestamp));
+        console.log("acceptOfferBlockNumber: ", Number(acceptOfferBlockNumber));
 
         var txAccepted = true;
 
         const createdAuctionInfo = await auctionRewardHoleskyContract.getCreatedAuctionInfo(Number(auctionId));
-        console.log("Created AUCTION INFO: ", createdAuctionInfo);
+        //console.log("Created AUCTION INFO: ", createdAuctionInfo);
         
         // Verify the Auction is accepted before its expiration
         if (Number(acceptOfferTimestamp) > Number(createdAuctionInfo.expiresAt)) {
@@ -135,26 +136,37 @@ auctionRewardAmoyContract.on("AuctionAccepted", async (
             auctionCreationEOA: createdAuctionInfo.seller,
             acceptingOfferEOA: buyer
         };
-        
+
+        //const dataBytes = ethers.hexlify(ethers.toUtf8Bytes(JSON.stringify(data)));
+        //const dataBytes = ethers.hexlify(ethers.toUtf8Bytes("true"));
+        //console.log("DATAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa BYTES: ", dataBytes);
+
+        const dataBytes = ethers.AbiCoder.defaultAbiCoder().encode(
+            ["bool"],
+            [txAccepted]
+        )
+
         const message = ethers.AbiCoder.defaultAbiCoder().encode(
-            ["string", "bool", "address", "uint16"],
-            [proofOfTask, txAccepted, nodeAccount.address, taskDefinitionId]
+            ["string", "bytes", "address", "uint16"],
+            [proofOfTask, dataBytes, nodeAccount.address, taskDefinitionId]
         );
         const messageHash = ethers.keccak256(message);
         const sig = nodeAccount.signingKey.sign(messageHash).serialized;
 
+        console.log("MESSAGE SIGNED");
+
         const jsonRpcBody = {
             jsonrpc: "2.0",
             method: "sendTask",
-            params: [proofOfTask, data, taskDefinitionId, nodeAccount.address, sig],
+            params: [proofOfTask, dataBytes, taskDefinitionId, nodeAccount.address, sig],
         };
 
         // The tasks consists of signing the current timestamp. The timestamp
         // will be used as the seed for our PRNG smart contract
-        // new ethers.JsonRpcProvider(NODE_RPC).send(
-        //    jsonRpcBody.method,
-        //    jsonRpcBody.params
-        // );
+        new ethers.JsonRpcProvider(NODE_RPC).send(
+           jsonRpcBody.method,
+           jsonRpcBody.params
+        );
 
         console.log("TASK SUBMITTED")
 
@@ -168,16 +180,16 @@ auctionRewardAmoyContract.on("AuctionAccepted", async (
  * and checks that it's the `currentPerformer`.
  */
 app.post("/task/validate", async (req, res) => {
+    console.log(req.body);
     console.log("OPERATORS VALIDATE TAKS")
-    const { proofOfTask, performer, data } = req.body;
-    //const blockNumber = parseInt(proofOfTask.split("+")[0], 10); // Extract the block number from the proof of task
-    const electedPerformer = await electedLeader(); // Get the elected performer for that block
+    const { proofOfTask, performer, dataBytes } = req.body;
+    const electedPerformer = electedLeader(); // Get the elected performer for that block
 
     //console.log(
     //  `Validating task for block number: ${blockNumber}, Task Performer: ${performer}, Elected Performer: ${electedPerformer}`
     //);
 
-    console.log(data);
+    console.log("DATA BYTES: ", dataBytes);
         
     var txAccepted = true;
     var isTaskValid = false;
